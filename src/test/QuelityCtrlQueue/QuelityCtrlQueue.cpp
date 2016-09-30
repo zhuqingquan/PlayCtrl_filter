@@ -10,7 +10,7 @@ bool isRunning = false;
 
 DWORD WINAPI genNormalData(LPVOID param)
 {
-	Video::QualityCtrlQueue<Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*>*>(param);
+	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*, Item*>*>(param);
 	if(dataQueue==NULL)
 		return -1;
 	int videoInterval[1] = {40};
@@ -64,7 +64,7 @@ DWORD WINAPI genNormalData(LPVOID param)
 
 DWORD WINAPI genData_unstable(LPVOID param)
 {
-	Video::QualityCtrlQueue<Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*>*>(param);
+	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*, Item*>*>(param);
 	if(dataQueue==NULL)
 		return -1;
 	int videoInterval[1] = {40};
@@ -138,7 +138,7 @@ DWORD WINAPI genData_unstable(LPVOID param)
 
 DWORD WINAPI genData_simulateReconnect(LPVOID param)
 {
-	Video::QualityCtrlQueue<Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*>*>(param);
+	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*, Item*>*>(param);
 	if(dataQueue==NULL)
 		return -1;
 	int videoInterval[1] = {40};
@@ -224,7 +224,7 @@ DWORD WINAPI genData_simulateReconnect(LPVOID param)
 
 DWORD WINAPI genData_cached5secdatabeforestart(LPVOID param)
 {
-	Video::QualityCtrlQueue<Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*>*>(param);
+	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*, Item*>*>(param);
 	if(dataQueue==NULL)
 		return -1;
 	int videoInterval[1] = {40};
@@ -301,7 +301,7 @@ DWORD WINAPI genData_cached5secdatabeforestart(LPVOID param)
 void videodatacallback(Item* data, void* userdata);
 void audiodatacallback(Item* data, void* userdata);
 
-class OutputDataInfo : public Video::MediaDataCallback<Item*>
+class OutputDataInfo : public Video::MediaDataCallback<Item*, Item*>
 {
 public:
 	virtual int doVideoDataCallback(Item* vData)
@@ -374,7 +374,7 @@ void audiodatacallback(Item* data, void* userdata)
 int _tmain(int argc, _TCHAR* argv[])
 {
 	OutputDataInfo dataResult;
-	Video::QualityCtrlQueue<Item*>* dataQueue = new Video::QualityCtrlQueue<Item*>();
+	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = new Video::QualityCtrlQueue<Item*, Item*>();
 	dataQueue->setCacheSize(2000, 2000);
 	dataQueue->setDropDataThreshold(200);
 	dataQueue->setVideoDataCallback(&dataResult);

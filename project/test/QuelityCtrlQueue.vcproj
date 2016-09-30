@@ -41,11 +41,12 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
+				AdditionalIncludeDirectories="&quot;$(ProjectDir)/../../inc&quot;;&quot;$(ProjectDir)../../test/QuelityCtrlQueue&quot;"
 				PreprocessorDefinitions="WIN32;_DEBUG;_CONSOLE"
 				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="3"
-				UsePrecompiledHeader="2"
+				UsePrecompiledHeader="0"
 				WarningLevel="3"
 				DebugInformationFormat="4"
 			/>
@@ -171,28 +172,12 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
-				RelativePath=".\QuelityCtrlQueue.cpp"
+				RelativePath="..\..\src\test\QuelityCtrlQueue\QuelityCtrlQueue.cpp"
 				>
 			</File>
 			<File
-				RelativePath=".\stdafx.cpp"
+				RelativePath="..\..\src\test\QuelityCtrlQueue\stdafx.cpp"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="1"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="1"
-					/>
-				</FileConfiguration>
 			</File>
 		</Filter>
 		<Filter
@@ -201,15 +186,23 @@
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
 			<File
-				RelativePath=".\QualityCtrlQueue.h"
+				RelativePath="..\..\inc\CriticalSection.h"
 				>
 			</File>
 			<File
-				RelativePath=".\stdafx.h"
+				RelativePath="..\..\inc\QualityCtrlQueue.h"
 				>
 			</File>
 			<File
-				RelativePath=".\targetver.h"
+				RelativePath="..\..\src\test\QuelityCtrlQueue\stdafx.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\test\QuelityCtrlQueue\targetver.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\inc\TimeCounter.h"
 				>
 			</File>
 		</Filter>

@@ -27,11 +27,11 @@ namespace Video
 {
 	//typedef void (*MediaDataCallback)(Item* data, void* userdata);
 
-	template<typename DataType>
+	template<typename VideoDataType, typename AudioDataType>
 	struct MediaDataCallback
 	{
-		virtual int doVideoDataCallback(DataType vData) = 0;
-		virtual int doAudioDataCallback(DataType aData) = 0;
+		virtual int doVideoDataCallback(VideoDataType vData) = 0;
+		virtual int doAudioDataCallback(AudioDataType aData) = 0;
 	};
 
 	/**
@@ -47,7 +47,7 @@ namespace Video
 	 *			====================================== 以下可选择不实现 ==================================
 	 *			6、调用者通过调用接口获知调用插入数据是否会被丢弃，如果可能被丢弃则可以选择不插入避免数据被丢弃
 	 **/
-	template<typename DataType>
+	template<typename VideoDataType, typename AudioDataType>
 	class QualityCtrlQueue
 	{
 	public:
@@ -75,34 +75,34 @@ namespace Video
 		bool start();
 		void stop();
 
-		void setVideoDataCallback(MediaDataCallback<DataType>* videocallback)
+		void setVideoDataCallback(MediaDataCallback<VideoDataType, AudioDataType>* videocallback)
 		{
 			m_videocb = videocallback;
 		}
-		void setAudioDataCallback(MediaDataCallback<DataType>* audiocallback)
+		void setAudioDataCallback(MediaDataCallback<VideoDataType, AudioDataType>* audiocallback)
 		{
 			m_audiocb = audiocallback;
 		}
 
-		bool insert_video(DataType data);
-		bool insert_audio(DataType data);
+		bool insert_video(VideoDataType data);
+		bool insert_audio(AudioDataType data);
 
 		void doQuelityThread();
 
 	private:
-		DataType getVideoSample();
-		DataType getAudioSample();
+		VideoDataType getVideoSample();
+		AudioDataType getAudioSample();
 
-		void doVideoDataCallback(DataType vData);
-		void doAudioDataCallback(DataType aData);
+		void doVideoDataCallback(VideoDataType vData);
+		void doAudioDataCallback(AudioDataType aData);
 
-		unsigned int getCachedDataSize(const std::list<DataType>& datalist);
+		unsigned int getCachedDataSize(const std::list<VideoDataType>& datalist);
 
 		void resetTimeState();
 
 	private:
-		std::list<DataType> m_VideoData;
-		std::list<DataType> m_AudioData;
+		std::list<VideoDataType> m_VideoData;
+		std::list<AudioDataType> m_AudioData;
 
 		CCriticalLock m_videoSrcListLock;
 		CCriticalLock m_AudioSrcListLock;
@@ -119,8 +119,8 @@ namespace Video
 		unsigned int m_audioDelayTime;
 		unsigned int m_dropThreshold;
 
-		MediaDataCallback<DataType>* m_videocb;
-		MediaDataCallback<DataType>* m_audiocb;
+		MediaDataCallback<VideoDataType, AudioDataType>* m_videocb;
+		MediaDataCallback<AudioDataType, AudioDataType>* m_audiocb;
 
 		long m_firstFrameType;
 		long m_videoDropCount;
@@ -134,13 +134,13 @@ namespace Video
 		unsigned int m_aLastInputTS;		//最后输入的音频帧的时间戳
 	};
 
-	template<typename DataType>
+	template<typename VideoDataType, typename AudioDataType>
 	DWORD WINAPI qualityThreadWork(LPVOID param);
 
-	template<typename DataType>
+	template<typename VideoDataType, typename AudioDataType>
 	DWORD WINAPI qualityThreadWork(LPVOID param)
 	{
-		QualityCtrlQueue<DataType>* pThis = (QualityCtrlQueue<DataType>*)param;
+		QualityCtrlQueue<VideoDataType, AudioDataType>* pThis = (QualityCtrlQueue<VideoDataType, AudioDataType>*)param;
 		if(pThis)
 		{
 			pThis->doQuelityThread();
@@ -148,17 +148,17 @@ namespace Video
 		return 0;
 	}
 
-	template<typename DataType>
-	void QualityCtrlQueue<DataType>::doQuelityThread()
+	template<typename VideoDataType, typename AudioDataType>
+	void QualityCtrlQueue<VideoDataType, AudioDataType>::doQuelityThread()
 	{
 		int looptimes = 1;
 		unsigned int vLastInputTS = m_vLastInputTS;		//最后输入的视频帧的时间戳
 		unsigned int aLastInputTS = m_aLastInputTS;		//最后输入的音频帧的时间戳
 		while(m_isQuelityThreadRunning)
 		{
-			DataType pVideo = getVideoSample();
+			VideoDataType pVideo = getVideoSample();
 			doVideoDataCallback(pVideo);
-			DataType pAudio = getAudioSample();
+			AudioDataType pAudio = getAudioSample();
 			doAudioDataCallback(pAudio);
 			Sleep(10);
 
@@ -198,16 +198,16 @@ namespace Video
 		}
 	}
 
-	template<typename DataType>
-	bool QualityCtrlQueue<DataType>::start()
+	template<typename VideoDataType, typename AudioDataType>
+	bool QualityCtrlQueue<VideoDataType, AudioDataType>::start()
 	{
 		m_isQuelityThreadRunning = true;
-		m_qualityThread = CreateThread(NULL, 0, qualityThreadWork<DataType>, this, 0, 0);
+		m_qualityThread = CreateThread(NULL, 0, qualityThreadWork<VideoDataType, AudioDataType>, this, 0, 0);
 		return 0;
 	}
 
-	template<typename DataType>
-	void QualityCtrlQueue<DataType>::stop()
+	template<typename VideoDataType, typename AudioDataType>
+	void QualityCtrlQueue<VideoDataType, AudioDataType>::stop()
 	{
 		m_isQuelityThreadRunning = false;
 		WaitForSingleObject(m_qualityThread, 5000);
@@ -215,19 +215,19 @@ namespace Video
 		m_qualityThread = NULL;
 	}
 
-	template<typename DataType>
-	DataType QualityCtrlQueue<DataType>::getVideoSample()
+	template<typename VideoDataType, typename AudioDataType>
+	VideoDataType QualityCtrlQueue<VideoDataType, AudioDataType>::getVideoSample()
 	{
-		DataType pSample = NULL;
+		VideoDataType pSample = NULL;
 		{
 			CAutoLock lock(m_videoSrcListLock);
 			while(getCachedDataSize(m_VideoData)>m_videoDelayTime+m_dropThreshold)
 			{
-				DataType f1 = m_VideoData.front();
+				VideoDataType f1 = m_VideoData.front();
 				m_VideoData.pop_front();
 				if(1==m_firstFrameType)
 				{
-					DataType f2 = m_VideoData.front();
+					VideoDataType f2 = m_VideoData.front();
 					unsigned int interval = f2->getTimestamp() - f1->getTimestamp();
 					CAutoLock tslock(m_TsLock);
 					if(m_firstPresentTime!=-1)
@@ -284,19 +284,19 @@ namespace Video
 		return pSample;
 	}
 
-	template<typename DataType>
-	DataType QualityCtrlQueue<DataType>::getAudioSample()
+	template<typename VideoDataType, typename AudioDataType>
+	AudioDataType QualityCtrlQueue<VideoDataType, AudioDataType>::getAudioSample()
 	{
-		DataType pSample = NULL;
+		AudioDataType pSample = NULL;
 		{
 			CAutoLock lock(m_AudioSrcListLock);
 			while(getCachedDataSize(m_AudioData)>m_audioDelayTime+m_dropThreshold)
 			{
-				DataType f1 = m_AudioData.front();
+				AudioDataType f1 = m_AudioData.front();
 				m_AudioData.pop_front();
 				if(2==m_firstFrameType)
 				{
-					Item* f2 = m_AudioData.front();
+					AudioDataType f2 = m_AudioData.front();
 					unsigned int interval = f2->getTimestamp() - f1->getTimestamp();
 					CAutoLock tslock(m_TsLock);
 					if(m_firstPresentTime!=-1)
@@ -354,8 +354,8 @@ namespace Video
 		return pSample;
 	}
 
-	template<typename DataType>
-	void QualityCtrlQueue<DataType>::doVideoDataCallback( DataType vData )
+	template<typename VideoDataType, typename AudioDataType>
+	void QualityCtrlQueue<VideoDataType, AudioDataType>::doVideoDataCallback( VideoDataType vData )
 	{
 		if(vData)
 		{
@@ -367,8 +367,8 @@ namespace Video
 		}
 	}
 
-	template<typename DataType>
-	void QualityCtrlQueue<DataType>::doAudioDataCallback( DataType aData )
+	template<typename VideoDataType, typename AudioDataType>
+	void QualityCtrlQueue<VideoDataType, AudioDataType>::doAudioDataCallback( AudioDataType aData )
 	{
 		if(aData)
 		{
@@ -380,16 +380,16 @@ namespace Video
 		}
 	}
 
-	template<typename DataType>
-	unsigned int QualityCtrlQueue<DataType>::getCachedDataSize(const std::list<DataType>& datalist)
+	template<typename VideoDataType, typename AudioDataType>
+	unsigned int QualityCtrlQueue<VideoDataType, AudioDataType>::getCachedDataSize(const std::list<VideoDataType>& datalist)
 	{
 		if(datalist.size()<=1)
 			return 0;
 		return datalist.back()->getTimestamp() - datalist.front()->getTimestamp();
 	}
 
-	template<typename DataType>
-	bool QualityCtrlQueue<DataType>::insert_video( DataType data )
+	template<typename VideoDataType, typename AudioDataType>
+	bool QualityCtrlQueue<VideoDataType, AudioDataType>::insert_video( VideoDataType data )
 	{
 		InterlockedCompareExchange(&m_firstFrameType, 1, 0);
 		CAutoLock lock(m_videoSrcListLock);
@@ -398,8 +398,8 @@ namespace Video
 		return true;
 	}
 
-	template<typename DataType>
-	bool QualityCtrlQueue<DataType>::insert_audio( DataType data )
+	template<typename VideoDataType, typename AudioDataType>
+	bool QualityCtrlQueue<VideoDataType, AudioDataType>::insert_audio( AudioDataType data )
 	{
 		InterlockedCompareExchange(&m_firstFrameType, 2, 0);
 		CAutoLock lock(m_AudioSrcListLock);
@@ -408,8 +408,8 @@ namespace Video
 		return true;
 	}
 
-	template<typename DataType>
-	QualityCtrlQueue<DataType>::QualityCtrlQueue()
+	template<typename VideoDataType, typename AudioDataType>
+	QualityCtrlQueue<VideoDataType, AudioDataType>::QualityCtrlQueue()
 		: m_qualityThread(NULL), m_isQuelityThreadRunning(false)
 		, m_firstPresentTime(-1), m_startFrameTime(-1)
 		, m_videoDelayTime(0), m_audioDelayTime(0), m_dropThreshold(0)
@@ -420,14 +420,14 @@ namespace Video
 	{
 	}
 
-	template<typename DataType>
-	QualityCtrlQueue<DataType>::~QualityCtrlQueue()
+	template<typename VideoDataType, typename AudioDataType>
+	QualityCtrlQueue<VideoDataType, AudioDataType>::~QualityCtrlQueue()
 	{
 		stop();
 	}
 
-	template<typename DataType>
-	void QualityCtrlQueue<DataType>::resetTimeState()
+	template<typename VideoDataType, typename AudioDataType>
+	void QualityCtrlQueue<VideoDataType, AudioDataType>::resetTimeState()
 	{
 		m_firstPresentTime = -1;
 		m_startFrameTime = -1;
