@@ -15,14 +15,6 @@
 #include "CriticalSection.h"
 #include "TimeCounter.h"
 
-struct Item
-{
-	unsigned int id;
-	unsigned int timestamp;
-
-	unsigned int getTimestamp() { return timestamp; }
-};
-
 namespace Video
 {
 	//typedef void (*MediaDataCallback)(Item* data, void* userdata);
@@ -32,6 +24,8 @@ namespace Video
 	{
 		virtual int doVideoDataCallback(VideoDataType vData) = 0;
 		virtual int doAudioDataCallback(AudioDataType aData) = 0;
+		virtual int notifyDropVideoData(VideoDataType vData) = 0;
+		virtual int notifyDropAudioData(AudioDataType aData) = 0;
 	};
 
 	/**
@@ -51,7 +45,7 @@ namespace Video
 	class QualityCtrlQueue
 	{
 	public:
-		QualityCtrlQueue();
+		QualityCtrlQueue(const char* name=NULL);
 		~QualityCtrlQueue();
 
 		bool setCacheSize(unsigned int videoCacheMillsec, unsigned int audioCacheMillsec)
@@ -63,6 +57,8 @@ namespace Video
 
 		int getVideoCacheSize() const { return m_videoDelayTime; }
 		int getAudioCacheSize() const { return m_audioDelayTime; }
+
+		int setModifyStepDis(unsigned int stepdisMillsec);
 
 		/**
 		 *	@name			setDropDataThreshold
@@ -79,6 +75,7 @@ namespace Video
 		{
 			m_videocb = videocallback;
 		}
+
 		void setAudioDataCallback(MediaDataCallback<VideoDataType, AudioDataType>* audiocallback)
 		{
 			m_audiocb = audiocallback;
@@ -96,11 +93,17 @@ namespace Video
 		void doVideoDataCallback(VideoDataType vData);
 		void doAudioDataCallback(AudioDataType aData);
 
-		unsigned int getCachedDataSize(const std::list<VideoDataType>& datalist);
+		void notifyDropVideo(VideoDataType vData);
+		void notifyDropAudio(AudioDataType aData);
+
+		unsigned int getCachedVideoDataSize(const std::list<VideoDataType>& datalist);
+		unsigned int getCachedAudioDataSize(const std::list<AudioDataType>& datalist);
 
 		void resetTimeState();
 
 	private:
+		std::string m_name;
+
 		std::list<VideoDataType> m_VideoData;
 		std::list<AudioDataType> m_AudioData;
 
@@ -120,7 +123,7 @@ namespace Video
 		unsigned int m_dropThreshold;
 
 		MediaDataCallback<VideoDataType, AudioDataType>* m_videocb;
-		MediaDataCallback<AudioDataType, AudioDataType>* m_audiocb;
+		MediaDataCallback<VideoDataType, AudioDataType>* m_audiocb;
 
 		long m_firstFrameType;
 		long m_videoDropCount;
@@ -132,6 +135,9 @@ namespace Video
 		unsigned int m_aLastOutputTS;		//最后输出的音频帧的时间戳
 		unsigned int m_vLastInputTS;		//最后输入的视频帧的时间戳
 		unsigned int m_aLastInputTS;		//最后输入的音频帧的时间戳
+
+		unsigned int m_cachedVideoSize;
+		unsigned int m_cachedAudioSize;
 	};
 
 	template<typename VideoDataType, typename AudioDataType>
@@ -162,19 +168,13 @@ namespace Video
 			doAudioDataCallback(pAudio);
 			Sleep(10);
 
-			if((looptimes%1000)==0)
+			if((looptimes%500)==0)
 			{
 				CAutoLock vlock(m_videoSrcListLock);
 				CAutoLock alock(m_AudioSrcListLock);
-				unsigned int vCached = getCachedDataSize(m_VideoData);
-				unsigned int aCached = getCachedDataSize(m_AudioData);
-				char msg[512] = {0};
-				sprintf(msg, "cached video %u audio %u  next v_ts %u a_ts %u  Droped v=%d a=%d md=%d mdInc=%d\n", 
-					vCached, aCached,
-					m_VideoData.size()>0 ? m_VideoData.front()->getTimestamp() : 0,
-					m_AudioData.size()>0 ? m_AudioData.front()->getTimestamp() : 0,
-					m_videoDropCount, m_audioDropCount, m_modifyDIS, m_modifyDISIncress);
-				OutputDebugStringA(msg);
+				unsigned int vCached = getCachedVideoDataSize(m_VideoData);
+				unsigned int aCached = getCachedAudioDataSize(m_AudioData);
+				
 				if(vCached>m_videoDelayTime || aCached>m_audioDelayTime)
 				{
 					if(m_firstPresentTime!=-1)
@@ -183,18 +183,55 @@ namespace Video
 						InterlockedIncrement(&m_modifyDIS);
 					}
 				}
+				unsigned int dis = 0;
 				if(vCached<m_videoDelayTime || aCached<m_audioDelayTime)
 				{
+					
 					if(vLastInputTS!=m_vLastInputTS || aLastInputTS!=m_aLastInputTS)
 					{
-						m_firstPresentTime += 10;
+						unsigned int dis_v = vCached<m_videoDelayTime ? m_videoDelayTime-vCached : 0;
+						unsigned int dis_a = aCached<m_audioDelayTime ? m_audioDelayTime-aCached : 0;
+						dis = dis_v > dis_a ? dis_v : dis_a;
+						dis /= 24;//30s 恢复
+						m_firstPresentTime += dis;
 						InterlockedIncrement(&m_modifyDISIncress);
 					}				
 				}
+
+				char msg[512] = {0};
+				sprintf(msg, "%16s cached video %u n-%u audio %u n-%u  next v_ts %u a_ts %u  Droped v=%d a=%d md=%d mdInc=%d-%d\n", 
+					m_name.c_str(), vCached, m_VideoData.size(), aCached, m_AudioData.size(),
+					m_VideoData.size()>0 ? m_VideoData.front()->getTimestamp() : 0,
+					m_AudioData.size()>0 ? m_AudioData.front()->getTimestamp() : 0,
+					m_videoDropCount, m_audioDropCount, m_modifyDIS, m_modifyDISIncress, dis);
+				OutputDebugStringA(msg);
+
 				vLastInputTS = m_vLastInputTS;
 				aLastInputTS = m_aLastInputTS;
+
+				//if there is not data in queue, reset the time state
+				if(m_VideoData.size()<=0 && m_AudioData.size()<=0)
+				{
+					OutputDebugStringA("VideoData and AudioData Empty, reset timestate.\n");
+					resetTimeState();
+				}
 			}
 			looptimes++;
+		}
+		//drop data remaind in the queue
+		CAutoLock vlock(m_videoSrcListLock);
+		while(m_VideoData.size()>0)
+		{
+			VideoDataType f1 = m_VideoData.front();
+			m_VideoData.pop_front();
+			notifyDropVideo(f1);
+		}
+		CAutoLock alock(m_AudioSrcListLock);
+		while(m_AudioData.size()>0)
+		{
+			AudioDataType f1 = m_AudioData.front();
+			m_AudioData.pop_front();
+			notifyDropAudio(f1);
 		}
 	}
 
@@ -221,8 +258,13 @@ namespace Video
 		VideoDataType pSample = NULL;
 		{
 			CAutoLock lock(m_videoSrcListLock);
-			while(getCachedDataSize(m_VideoData)>m_videoDelayTime+m_dropThreshold)
+			while(getCachedVideoDataSize(m_VideoData)>m_videoDelayTime+m_dropThreshold)
 			{
+				if(m_VideoData.size()<=1)
+				{
+					m_cachedVideoSize = 0;
+					break;
+				}
 				VideoDataType f1 = m_VideoData.front();
 				m_VideoData.pop_front();
 				if(1==m_firstFrameType)
@@ -235,7 +277,7 @@ namespace Video
 						m_firstPresentTime -= interval;
 					}
 				}
-				delete f1;
+				notifyDropVideo(f1);
 				InterlockedIncrement(&m_videoDropCount);
 			}
 			while(m_VideoData.size()>0)
@@ -260,6 +302,7 @@ namespace Video
 		if(ts<m_vLastOutputTS)
 		{
 			resetTimeState();
+			m_vLastOutputTS = 0;
 		}
 
 		LONG interval = 0;
@@ -281,6 +324,15 @@ namespace Video
 
 		CAutoLock lock(m_videoSrcListLock);
 		m_VideoData.pop_front();
+		unsigned int ts_cur = pSample->getTimestamp();
+		if(m_vLastOutputTS!=0 && ts_cur>m_vLastOutputTS)
+		{
+			m_cachedVideoSize -= ts_cur - m_vLastOutputTS;
+// 			char msg[56] = {0};
+// 			sprintf(msg, "Cached Video size %u \n", m_cachedVideoSize);
+// 			OutputDebugStringA(msg);
+		}
+		m_vLastOutputTS = ts_cur;
 		return pSample;
 	}
 
@@ -290,8 +342,13 @@ namespace Video
 		AudioDataType pSample = NULL;
 		{
 			CAutoLock lock(m_AudioSrcListLock);
-			while(getCachedDataSize(m_AudioData)>m_audioDelayTime+m_dropThreshold)
+			while(getCachedAudioDataSize(m_AudioData)>m_audioDelayTime+m_dropThreshold)
 			{
+				if(m_AudioData.size()<=1)
+				{
+					m_cachedAudioSize = 0;
+					break;
+				}
 				AudioDataType f1 = m_AudioData.front();
 				m_AudioData.pop_front();
 				if(2==m_firstFrameType)
@@ -305,7 +362,7 @@ namespace Video
 					}
 				}
 
-				delete f1;
+				notifyDropAudio(f1);
 				InterlockedIncrement(&m_audioDropCount);
 			}
 			while(m_AudioData.size()>0)
@@ -330,6 +387,7 @@ namespace Video
 		if(ts<m_aLastOutputTS)
 		{
 			resetTimeState();
+			m_aLastOutputTS = 0;
 		}
 
 		LONG interval = 0;
@@ -351,6 +409,12 @@ namespace Video
 
 		CAutoLock lock(m_AudioSrcListLock);
 		m_AudioData.pop_front();
+		unsigned int ts_cur = pSample->getTimestamp();
+		if(m_aLastOutputTS!=0 && ts_cur>m_aLastOutputTS)
+		{
+			m_cachedAudioSize -= ts_cur - m_aLastOutputTS;
+		}
+		m_aLastOutputTS = ts_cur;
 		return pSample;
 	}
 
@@ -359,7 +423,6 @@ namespace Video
 	{
 		if(vData)
 		{
-			m_vLastOutputTS = vData->getTimestamp();
 			if(m_videocb)
 			{
 				m_videocb->doVideoDataCallback(vData);
@@ -372,7 +435,6 @@ namespace Video
 	{
 		if(aData)
 		{
-			m_aLastOutputTS = aData->getTimestamp();
 			if(m_audiocb)
 			{
 				m_audiocb->doAudioDataCallback(aData);
@@ -381,11 +443,79 @@ namespace Video
 	}
 
 	template<typename VideoDataType, typename AudioDataType>
-	unsigned int QualityCtrlQueue<VideoDataType, AudioDataType>::getCachedDataSize(const std::list<VideoDataType>& datalist)
+	void QualityCtrlQueue<VideoDataType, AudioDataType>::notifyDropAudio( AudioDataType aData )
 	{
+		if(aData)
+		{
+			unsigned int ts = aData->getTimestamp();
+			if(m_aLastOutputTS!=0 && ts>m_aLastOutputTS)
+			{
+				m_cachedAudioSize -= ts - m_aLastOutputTS;
+			}
+			m_aLastOutputTS = ts;
+			if(m_audiocb)
+			{
+				m_audiocb->notifyDropAudioData(aData);
+			}
+		}
+	}
+
+	template<typename VideoDataType, typename AudioDataType>
+	void Video::QualityCtrlQueue<VideoDataType, AudioDataType>::notifyDropVideo( VideoDataType vData )
+	{
+		if(vData)
+		{
+			unsigned int ts = vData->getTimestamp();
+			if(m_vLastOutputTS!=0 && ts>m_vLastOutputTS)
+			{
+				m_cachedVideoSize -= ts - m_vLastOutputTS;
+// 				char msg[56] = {0};
+// 				sprintf(msg, "Cached Video size %u \n", m_cachedVideoSize);
+// 				OutputDebugStringA(msg);
+			}
+			m_vLastOutputTS = ts;
+			if(m_videocb)
+			{
+				m_videocb->notifyDropVideoData(vData);
+			}
+		}
+	}
+	template<typename VideoDataType, typename AudioDataType>
+	unsigned int QualityCtrlQueue<VideoDataType, AudioDataType>::getCachedVideoDataSize(const std::list<VideoDataType>& datalist)
+	{
+		return m_cachedVideoSize;
 		if(datalist.size()<=1)
 			return 0;
-		return datalist.back()->getTimestamp() - datalist.front()->getTimestamp();
+		unsigned int last = datalist.back()->getTimestamp();
+		unsigned int first = datalist.front()->getTimestamp();
+		if(last<=first)
+		{
+// 			char msg[256] = {0};
+// 			sprintf_s(msg, 256, "QualityCtrlQueue::getCachedVideoDataSize maybe reseted last=%u first=%u cachedSize=%u\n", 
+// 				last, first, last-first);
+// 			OutputDebugStringA(msg);
+			return 0;
+		}
+		return last - first;
+	}
+
+	template<typename VideoDataType, typename AudioDataType>
+	unsigned int Video::QualityCtrlQueue<VideoDataType, AudioDataType>::getCachedAudioDataSize( const std::list<AudioDataType>& datalist )
+	{
+		return m_cachedAudioSize;
+		if(datalist.size()<=1)
+			return 0;
+		unsigned int last = datalist.back()->getTimestamp();
+		unsigned int first = datalist.front()->getTimestamp();
+		if(last<=first)
+		{
+// 			char msg[256] = {0};
+// 			sprintf_s(msg, 256, "QualityCtrlQueue::getCachedVideoDataSize maybe reseted last=%u first=%u cachedSize=%u\n", 
+// 				last, first, last-first);
+// 			OutputDebugStringA(msg);
+			return 0;
+		}
+		return last - first;
 	}
 
 	template<typename VideoDataType, typename AudioDataType>
@@ -394,7 +524,15 @@ namespace Video
 		InterlockedCompareExchange(&m_firstFrameType, 1, 0);
 		CAutoLock lock(m_videoSrcListLock);
 		m_VideoData.push_back(data);
-		m_vLastInputTS = data->getTimestamp();
+		unsigned int ts = data->getTimestamp();
+		if(m_vLastInputTS!=0 && ts>m_vLastInputTS)
+		{
+			m_cachedVideoSize += ts-m_vLastInputTS;
+// 			char msg[56] = {0};
+// 			sprintf(msg, "Cached Video size %u \n", m_cachedVideoSize);
+// 			OutputDebugStringA(msg);
+		}
+		m_vLastInputTS = ts;
 		return true;
 	}
 
@@ -404,12 +542,17 @@ namespace Video
 		InterlockedCompareExchange(&m_firstFrameType, 2, 0);
 		CAutoLock lock(m_AudioSrcListLock);
 		m_AudioData.push_back(data);
-		m_aLastInputTS = data->getTimestamp();
+		unsigned int ts = data->getTimestamp();
+		if(m_aLastInputTS!=0 && ts>m_aLastInputTS)
+		{
+			m_cachedAudioSize += ts-m_aLastInputTS;
+		}
+		m_aLastInputTS = ts;
 		return true;
 	}
 
 	template<typename VideoDataType, typename AudioDataType>
-	QualityCtrlQueue<VideoDataType, AudioDataType>::QualityCtrlQueue()
+	QualityCtrlQueue<VideoDataType, AudioDataType>::QualityCtrlQueue(const char* name/*=NULL*/)
 		: m_qualityThread(NULL), m_isQuelityThreadRunning(false)
 		, m_firstPresentTime(-1), m_startFrameTime(-1)
 		, m_videoDelayTime(0), m_audioDelayTime(0), m_dropThreshold(0)
@@ -417,6 +560,8 @@ namespace Video
 		, m_firstFrameType(0)
 		, m_videoDropCount(0), m_audioDropCount(0), m_modifyDIS(0), m_modifyDISIncress(0)
 		, m_vLastOutputTS(0), m_aLastOutputTS(0), m_vLastInputTS(0), m_aLastInputTS(0)
+		, m_cachedVideoSize(0), m_cachedAudioSize(0)
+		, m_name(name?name:"")
 	{
 	}
 
@@ -429,10 +574,13 @@ namespace Video
 	template<typename VideoDataType, typename AudioDataType>
 	void QualityCtrlQueue<VideoDataType, AudioDataType>::resetTimeState()
 	{
+		OutputDebugStringA("QualityCtrlQueue::resetTimeState-------------\n");
 		m_firstPresentTime = -1;
 		m_startFrameTime = -1;
-		m_vLastOutputTS = 0;
-		m_aLastOutputTS = 0;
+		//m_vLastOutputTS = 0;
+		//m_aLastOutputTS = 0;
+		//m_cachedVideoSize = 0;
+		//m_cachedAudioSize = 0;
 	}
 
 }

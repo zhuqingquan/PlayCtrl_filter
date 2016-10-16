@@ -8,6 +8,14 @@
 
 bool isRunning = false;
 
+struct Item
+{
+	unsigned int id;
+	unsigned int timestamp;
+
+	unsigned int getTimestamp() { return timestamp; }
+};
+
 DWORD WINAPI genNormalData(LPVOID param)
 {
 	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*, Item*>*>(param);
@@ -222,6 +230,82 @@ DWORD WINAPI genData_simulateReconnect(LPVOID param)
 	return 0;
 }
 
+DWORD WINAPI genData_simulateReconnectFast(LPVOID param)
+{
+	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*, Item*>*>(param);
+	if(dataQueue==NULL)
+		return -1;
+	int videoInterval[1] = {40};
+	int videoIntervalCount = 1;
+	int audioInterval[3] = {17, 17, 16};
+	int audioIntervalCount = 3;
+
+	unsigned int lastVideoTS = 0;
+	unsigned int lastAudioTS = 0;
+
+	bool isNeedSimulateReconnection = false;
+	int videoIndex = 0;
+	int audioIndex = 0;
+	RPC::TimeCounter timecount;
+	LONGLONG firstVideoDataOut = 0;
+	LONGLONG firstAudioDataOut = 0;
+	srand((unsigned)time(NULL)); 
+	while(isRunning)
+	{
+		LONGLONG now = timecount.now_in_millsec();
+
+		if((now - firstAudioDataOut) > (lastVideoTS+videoInterval[videoIndex%videoIntervalCount]))
+		{
+			Item* vData = new Item();
+			vData->id = videoIndex;
+			vData->timestamp = lastVideoTS;
+			lastVideoTS += videoInterval[videoIndex%videoIntervalCount];
+			videoIndex++;
+			if(firstVideoDataOut==0)
+			{
+				firstVideoDataOut = now;
+			}
+			dataQueue->insert_video(vData);
+		}
+
+		if((now - firstAudioDataOut) > (lastAudioTS+audioInterval[audioIndex%audioIntervalCount]))
+		{
+			Item* aData = new Item();
+			aData->id = audioIndex;
+			aData->timestamp = lastAudioTS;
+			lastAudioTS += audioInterval[audioIndex%audioIntervalCount];
+			audioIndex++;
+			if(firstAudioDataOut==0)
+			{
+				firstAudioDataOut = now;
+			}
+			dataQueue->insert_audio(aData);
+		}
+
+		if(now-firstVideoDataOut > 1000*30*1)
+		{
+			isNeedSimulateReconnection = true;
+		}
+
+
+		if(isNeedSimulateReconnection)
+		{
+			lastVideoTS = 0;
+			lastAudioTS = 0;
+			firstVideoDataOut = 0;
+			firstAudioDataOut = 0;
+			isNeedSimulateReconnection = false;
+
+			Sleep(1000);
+		}
+		else
+		{
+			Sleep(5);
+		}
+	}
+	return 0;
+}
+
 DWORD WINAPI genData_cached5secdatabeforestart(LPVOID param)
 {
 	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = reinterpret_cast<Video::QualityCtrlQueue<Item*, Item*>*>(param);
@@ -315,6 +399,18 @@ public:
 		audiodatacallback(aData, this);
 		return 0;
 	}
+
+	virtual int notifyDropVideoData(Item* vData)
+	{
+		delete vData;
+		return 0;
+	}
+
+	virtual int notifyDropAudioData(Item* aData)
+	{
+		delete aData;
+		return 0;
+	}
 };
 
 void videodatacallback(Item* data, void* userdata)
@@ -373,8 +469,10 @@ void audiodatacallback(Item* data, void* userdata)
 
 int _tmain(int argc, _TCHAR* argv[])
 {
+	if(argc<2)
+		return 0;
 	OutputDataInfo dataResult;
-	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = new Video::QualityCtrlQueue<Item*, Item*>();
+	Video::QualityCtrlQueue<Item*, Item*>* dataQueue = new Video::QualityCtrlQueue<Item*, Item*>(argv[1]);
 	dataQueue->setCacheSize(2000, 2000);
 	dataQueue->setDropDataThreshold(200);
 	dataQueue->setVideoDataCallback(&dataResult);
@@ -383,10 +481,31 @@ int _tmain(int argc, _TCHAR* argv[])
 	system("pause");
 
 	isRunning = true;
+	HANDLE genDataTh = NULL;
+	if(strcmp(argv[1], "Reconnect")==0)
+	{
+		genDataTh = CreateThread(NULL, 0, genData_simulateReconnect, dataQueue, 0, NULL);
+	}
+	else if(strcmp(argv[1], "Normal")==0)
+	{
+		genDataTh = CreateThread(NULL, 0, genNormalData, dataQueue, 0, NULL);
+	}
+	else if(strcmp(argv[1], "Unstable")==0)
+	{
+		genDataTh = CreateThread(NULL, 0, genData_unstable, dataQueue, 0, NULL);
+	}
+	else if(strcmp(argv[1], "Cached5secFirst")==0)
+	{
+		genDataTh = CreateThread(NULL, 0, genData_cached5secdatabeforestart, dataQueue, 0, NULL);
+	}
+	else if(strcmp(argv[1], "ReconnectFast")==0)
+	{
+		genDataTh = CreateThread(NULL, 0, genData_simulateReconnectFast, dataQueue, 0, NULL);
+	}
 	//HANDLE genDataTh = CreateThread(NULL, 0, genNormalData, dataQueue, 0, NULL);
 	//HANDLE genDataTh = CreateThread(NULL, 0, genData_cached5secdatabeforestart, dataQueue, 0, NULL);
 	//HANDLE genDataTh = CreateThread(NULL, 0, genData_unstable, dataQueue, 0, NULL);
-	HANDLE genDataTh = CreateThread(NULL, 0, genData_simulateReconnect, dataQueue, 0, NULL);
+	//HANDLE genDataTh = CreateThread(NULL, 0, genData_simulateReconnectFast, dataQueue, 0, NULL);
 	system("pause");
 	isRunning = false;
 	WaitForSingleObject(genDataTh, 5000);
